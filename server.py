@@ -194,24 +194,28 @@ def main():
                 result = {"error": f"Unknown method: {method}"}
             
             # Send response
-            response = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": result
-            }
-            print(json.dumps(response), flush=True)
+            if request_id is not None:
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": result
+                }
+                print(json.dumps(response), flush=True)
+            else:
+                # For notifications (no id), don't send a response
+                pass
             
         except json.JSONDecodeError:
             error_response = {
                 "jsonrpc": "2.0",
-                "id": None,
+                "id": request_id if request_id is not None else 0,
                 "error": {"code": -32700, "message": "Parse error"}
             }
             print(json.dumps(error_response), flush=True)
         except Exception as e:
             error_response = {
                 "jsonrpc": "2.0",
-                "id": request.get("id") if 'request' in locals() else None,
+                "id": request_id if request_id is not None else 0,
                 "error": {"code": -32603, "message": str(e)}
             }
             print(json.dumps(error_response), flush=True)

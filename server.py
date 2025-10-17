@@ -19,7 +19,7 @@ except ImportError:
     sys.exit(1)
 
 
-def create_spread_image(pdf_path: str, left_page: int, right_page: int, border_width: int = 2) -> bytes:
+def create_spread_image(pdf_path: str, left_page: int, right_page: int, border_width: int = 2, quality: int = 50) -> bytes:
     """
     Convert two PDF pages into a single side-by-side image with a black border.
     
@@ -28,16 +28,24 @@ def create_spread_image(pdf_path: str, left_page: int, right_page: int, border_w
         left_page: Left page number (1-based)
         right_page: Right page number (1-based)
         border_width: Width of the black border/separator in pixels
+        quality: Image quality/size (50 = half size, 100 = full size, default: 50)
     
     Returns:
         PNG image data as bytes
     """
-    # Convert PDF pages to images (high DPI for quality)
+    # Calculate DPI based on quality parameter (50 = half size, 100 = full size)
+    base_dpi = 200
+    dpi = int(base_dpi * (quality / 100))
+    
+    # Ensure minimum DPI for pdf2image compatibility
+    dpi = max(dpi, 50)
+    
+    # Convert PDF pages to images
     pages = convert_from_path(
         pdf_path,
         first_page=left_page,
         last_page=right_page,
-        dpi=200
+        dpi=dpi
     )
     
     if len(pages) < 2:
@@ -73,30 +81,36 @@ def create_spread_image(pdf_path: str, left_page: int, right_page: int, border_w
     return output.getvalue()
 
 
-def handle_get_spread(params: dict) -> dict:
-    """Handle get_spread tool call"""
+def _process_spread_params(params: dict):
+    """Internal function to validate and process spread parameters"""
     pdf_path = params.get("pdf_path")
     left_page = params.get("left_page")
     right_page = params.get("right_page")
     border_width = params.get("border_width", 2)
-    
+    quality = params.get("quality", 50)
+
     if not pdf_path or left_page is None or right_page is None:
-        return {
-            "error": "Missing required parameters: pdf_path, left_page, right_page"
-        }
-    
+        raise ValueError("Missing required parameters: pdf_path, left_page, right_page")
+
+    # Validate PDF exists
+    pdf_file = Path(pdf_path).expanduser()
+    if not pdf_file.exists():
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+
+    # Create spread image
+    image_data = create_spread_image(str(pdf_file), left_page, right_page, border_width, quality)
+
+    return image_data, left_page, right_page
+
+
+def handle_view_spread(params: dict) -> dict:
+    """Handle view_spread tool call - displays spread in IDE"""
     try:
-        # Validate PDF exists
-        pdf_file = Path(pdf_path).expanduser()
-        if not pdf_file.exists():
-            return {"error": f"PDF file not found: {pdf_path}"}
-        
-        # Create spread image
-        image_data = create_spread_image(str(pdf_file), left_page, right_page, border_width)
-        
+        image_data, left_page, right_page = _process_spread_params(params)
+
         # Encode as base64 for MCP response
         image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
+
         return {
             "content": [
                 {
@@ -107,6 +121,33 @@ def handle_get_spread(params: dict) -> dict:
                 {
                     "type": "text",
                     "text": f"Double-page spread: pages {left_page}-{right_page}"
+                }
+            ]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def handle_save_spread(params: dict) -> dict:
+    """Handle save_spread tool call - saves spread to specified path"""
+    output_path = params.get("output_path")
+
+    if not output_path:
+        return {"error": "Missing required parameter: output_path"}
+
+    try:
+        image_data, left_page, right_page = _process_spread_params(params)
+
+        # Save to specified path
+        output_file = Path(output_path).expanduser()
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_bytes(image_data)
+
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"Saved spread (pages {left_page}-{right_page}) to: {output_file}"
                 }
             ]
         }
@@ -133,8 +174,8 @@ def handle_list_tools(params: dict) -> dict:
     return {
         "tools": [
             {
-                "name": "get_spread",
-                "description": "Convert two consecutive PDF pages into a single side-by-side image with black borders",
+                "name": "view_spread",
+                "description": "View two consecutive PDF pages as a single side-by-side image with black borders",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -154,9 +195,50 @@ def handle_list_tools(params: dict) -> dict:
                             "type": "integer",
                             "description": "Width of black border in pixels (default: 2)",
                             "default": 2
+                        },
+                        "quality": {
+                            "type": "integer",
+                            "description": "Image quality/size (50 = half size, 100 = full size, default: 50)",
+                            "default": 50
                         }
                     },
                     "required": ["pdf_path", "left_page", "right_page"]
+                }
+            },
+            {
+                "name": "save_spread",
+                "description": "Save two consecutive PDF pages as a single side-by-side image with black borders to a file",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "pdf_path": {
+                            "type": "string",
+                            "description": "Path to the PDF file (can use ~ for home directory)"
+                        },
+                        "left_page": {
+                            "type": "integer",
+                            "description": "Left page number (1-based index)"
+                        },
+                        "right_page": {
+                            "type": "integer",
+                            "description": "Right page number (1-based index)"
+                        },
+                        "output_path": {
+                            "type": "string",
+                            "description": "Path where to save the output PNG file"
+                        },
+                        "border_width": {
+                            "type": "integer",
+                            "description": "Width of black border in pixels (default: 2)",
+                            "default": 2
+                        },
+                        "quality": {
+                            "type": "integer",
+                            "description": "Image quality/size (50 = half size, 100 = full size, default: 50)",
+                            "default": 50
+                        }
+                    },
+                    "required": ["pdf_path", "left_page", "right_page", "output_path"]
                 }
             }
         ]
@@ -167,9 +249,14 @@ def handle_call_tool(params: dict) -> dict:
     """Handle MCP tools/call request"""
     tool_name = params.get("name")
     tool_params = params.get("arguments", {})
-    
-    if tool_name == "get_spread":
-        return handle_get_spread(tool_params)
+
+    if tool_name == "view_spread":
+        return handle_view_spread(tool_params)
+    elif tool_name == "save_spread":
+        return handle_save_spread(tool_params)
+    # Keep backward compatibility with old name
+    elif tool_name == "get_spread":
+        return handle_view_spread(tool_params)
     else:
         return {"error": f"Unknown tool: {tool_name}"}
 

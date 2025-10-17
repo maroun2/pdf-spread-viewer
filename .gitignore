@@ -44,3 +44,7 @@ htmlcov/
 # Temporary files
 *.tmp
 *.bak
+tmp/
+
+# MCP Configuration (contains API keys)
+.mcp.json

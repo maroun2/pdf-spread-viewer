@@ -22,6 +22,7 @@ wheels/
 
 # Virtual Environment
 venv/
+.venv/
 ENV/
 env/
 
@@ -45,6 +46,18 @@ htmlcov/
 *.tmp
 *.bak
 tmp/
+
+# Generated reports
+wcag_compliance_report.txt
+*_report.txt
+*_compliance*.txt
+
+# Generated images/outputs (from tool usage)
+*.png
+*.jpg
+*.jpeg
+*.gif
+!*.md  # Don't ignore markdown files
 
 # MCP Configuration (contains API keys)
 .mcp.json
